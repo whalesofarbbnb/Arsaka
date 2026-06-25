@@ -219,31 +219,40 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
     );
   };
 
-  // Distance calculator to TP/SL
+  // Distance calculator to TP/SL with direction-aware real-time slider mapping
   const getTradeStats = () => {
-    const entry = ticker.price;
+    const entry = ticker.signal.entryPrice || ticker.price;
     const tp1 = ticker.signal.tp1;
     const tp2 = ticker.signal.tp2;
     const sl = ticker.signal.sl;
+    const current = ticker.price;
     
-    // Normalize location percentage
-    const minVal = Math.min(entry, tp1, tp2, sl);
-    const maxVal = Math.max(entry, tp1, tp2, sl);
-    const range = maxVal - minVal;
+    const isLong = ticker.signal.action === 'LONG';
+
+    // Left is Stop Loss (SL) for LONG, but Take Profit 2 (TP2) for SHORT
+    // Right is Take Profit 2 (TP2) for LONG, but Stop Loss (SL) for SHORT
+    const leftBoundary = isLong ? sl : tp2;
+    const rightBoundary = isLong ? tp2 : sl;
+    const range = Math.abs(rightBoundary - leftBoundary);
 
     const getPercent = (val: number) => {
       if (range === 0) return 50;
-      return ((val - minVal) / range) * 100;
+      const pct = ((val - leftBoundary) / (rightBoundary - leftBoundary)) * 100;
+      return Math.min(100, Math.max(0, pct)); // clamp to 0-100%
     };
-
-    const isLong = ticker.signal.action === 'LONG';
 
     return {
       entryPct: getPercent(entry),
+      currentPct: getPercent(current),
       tp1Pct: getPercent(tp1),
       tp2Pct: getPercent(tp2),
       slPct: getPercent(sl),
-      isLong
+      isLong,
+      entry,
+      current,
+      tp1,
+      tp2,
+      sl
     };
   };
 
@@ -467,7 +476,11 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
                       <Sparkles size={8} /> DEEP ANALYTIC
                     </span>
                   </div>
-                  <span className="text-xs text-zinc-500 block mt-0.5">Machine Learning Confidence Level: {ticker.signal.confidence}%</span>
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <span className="text-xs text-zinc-500">Machine Learning Confidence: {ticker.signal.confidence}%</span>
+                    <span className="text-zinc-700">•</span>
+                    <span className="text-xs text-zinc-400">Risk-to-Reward Ratio: <strong className="text-emerald-400 font-mono">1:2</strong></span>
+                  </div>
                 </div>
               </div>
 
@@ -513,51 +526,98 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
 
             {/* Realtime Target Slider bar */}
             <div>
-              <div className="flex justify-between text-[10px] text-zinc-500 font-mono mb-1.5 uppercase">
-                <span>Stop Loss</span>
-                <span>Current Price (${ticker.price})</span>
-                <span>Take Profit 2</span>
+              <div className="flex justify-between text-[10px] font-mono mb-1.5 uppercase tracking-wider">
+                <span className={tradeStats.isLong ? "text-red-400 font-semibold" : "text-emerald-400 font-semibold"}>
+                  {tradeStats.isLong 
+                    ? `Stop Loss ($${tradeStats.sl.toFixed(tradeStats.sl > 1 ? 2 : 4)})` 
+                    : `TP 2 ($${tradeStats.tp2.toFixed(tradeStats.tp2 > 1 ? 2 : 4)})`}
+                </span>
+                <span className="text-zinc-300 font-bold flex items-center gap-1.5 px-2 py-0.5 bg-zinc-900 rounded-full border border-zinc-850">
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-ping" />
+                  <span>Real-time Price: ${ticker.price > 1 ? ticker.price.toFixed(2) : ticker.price.toFixed(4)}</span>
+                </span>
+                <span className={tradeStats.isLong ? "text-emerald-400 font-semibold" : "text-red-400 font-semibold"}>
+                  {tradeStats.isLong 
+                    ? `TP 2 ($${tradeStats.tp2.toFixed(tradeStats.tp2 > 1 ? 2 : 4)})` 
+                    : `Stop Loss ($${tradeStats.sl.toFixed(tradeStats.sl > 1 ? 2 : 4)})`}
+                </span>
               </div>
               
-              <div className="h-2 w-full bg-zinc-950 rounded-full relative overflow-visible border border-zinc-800">
-                {/* Red zone (Left to Entry) */}
-                <div 
-                  className="absolute top-0 bottom-0 left-0 bg-red-500/20" 
-                  style={{ width: `${tradeStats.entryPct}%` }}
-                />
-                {/* Green zone (Entry to Right) */}
-                <div 
-                  className="absolute top-0 bottom-0 bg-emerald-500/20" 
-                  style={{ left: `${tradeStats.entryPct}%`, right: 0 }}
-                />
+              <div className="h-3 w-full bg-zinc-950 rounded-full relative overflow-visible border border-zinc-800">
+                {/* Dynamically colored zones based on trade direction (Long vs Short) */}
+                {tradeStats.isLong ? (
+                  <>
+                    {/* Red zone (Left of Entry is Loss for Long) */}
+                    <div 
+                      className="absolute top-0 bottom-0 left-0 bg-red-500/20 rounded-l-full transition-all duration-500" 
+                      style={{ width: `${tradeStats.entryPct}%` }}
+                    />
+                    {/* Green zone (Right of Entry is Profit for Long) */}
+                    <div 
+                      className="absolute top-0 bottom-0 bg-emerald-500/20 rounded-r-full transition-all duration-500" 
+                      style={{ left: `${tradeStats.entryPct}%`, right: 0 }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {/* Green zone (Left of Entry is Profit for Short) */}
+                    <div 
+                      className="absolute top-0 bottom-0 left-0 bg-emerald-500/20 rounded-l-full transition-all duration-500" 
+                      style={{ width: `${tradeStats.entryPct}%` }}
+                    />
+                    {/* Red zone (Right of Entry is Loss for Short) */}
+                    <div 
+                      className="absolute top-0 bottom-0 bg-red-500/20 rounded-r-full transition-all duration-500" 
+                      style={{ left: `${tradeStats.entryPct}%`, right: 0 }}
+                    />
+                  </>
+                )}
 
                 {/* SL Pin */}
                 <div 
-                  className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3 bg-red-500 rounded-full"
+                  className="absolute top-1/2 -translate-y-1/2 -ml-1 w-2 h-4 bg-red-500 rounded-full border border-zinc-950 shadow-md flex items-center justify-center cursor-help z-10 hover:scale-125 transition-transform"
                   style={{ left: `${tradeStats.slPct}%` }}
-                  title="Stop Loss"
-                />
+                  title={`Stop Loss: $${tradeStats.sl}`}
+                >
+                  <span className="w-1 h-2 bg-white/40 rounded-full" />
+                </div>
 
                 {/* TP1 Pin */}
                 <div 
-                  className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3 bg-emerald-400 rounded-full"
+                  className="absolute top-1/2 -translate-y-1/2 -ml-1 w-2 h-4 bg-emerald-400 rounded-full border border-zinc-950 shadow-md flex items-center justify-center cursor-help z-10 hover:scale-125 transition-transform"
                   style={{ left: `${tradeStats.tp1Pct}%` }}
-                  title="Take Profit 1"
-                />
+                  title={`Take Profit 1: $${tradeStats.tp1}`}
+                >
+                  <span className="w-1 h-2 bg-white/40 rounded-full" />
+                </div>
 
                 {/* TP2 Pin */}
                 <div 
-                  className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3 bg-emerald-600 rounded-full"
+                  className="absolute top-1/2 -translate-y-1/2 -ml-1 w-2 h-4 bg-emerald-600 rounded-full border border-zinc-950 shadow-md flex items-center justify-center cursor-help z-10 hover:scale-125 transition-transform"
                   style={{ left: `${tradeStats.tp2Pct}%` }}
-                  title="Take Profit 2"
-                />
-
-                {/* Current Price Marker */}
-                <div 
-                  className="absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 bg-white rounded-full shadow-lg flex items-center justify-center border border-zinc-950"
-                  style={{ left: `${tradeStats.entryPct}%` }}
+                  title={`Take Profit 2: $${tradeStats.tp2}`}
                 >
-                  <div className="w-1 h-1 bg-zinc-950 rounded-full" />
+                  <span className="w-1 h-2 bg-white/40 rounded-full" />
+                </div>
+
+                {/* Entry Price Reference Line & Marker */}
+                <div 
+                  className="absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-5 flex flex-col items-center justify-between cursor-help z-20"
+                  style={{ left: `${tradeStats.entryPct}%` }}
+                  title={`Entry Price: $${tradeStats.entry}`}
+                >
+                  <span className="text-[7px] font-bold text-amber-500 font-mono tracking-tighter bg-zinc-950 px-1 rounded border border-amber-500/20 mb-4 -mt-4 uppercase">ENTRY</span>
+                  <div className="w-0.5 h-6 bg-amber-500/70 border border-dashed border-amber-500/30" />
+                </div>
+
+                {/* Real-time Current Price Marker (Glowing white/yellow pulse circle that moves!) */}
+                <div 
+                  className="absolute top-1/2 -translate-y-1/2 -ml-2 w-4 h-4 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] flex items-center justify-center border-2 border-zinc-950 z-30 transition-all duration-500"
+                  style={{ left: `${tradeStats.currentPct}%` }}
+                  title={`Current Price: $${tradeStats.current}`}
+                >
+                  <span className="absolute inset-0 rounded-full bg-white animate-ping opacity-20" />
+                  <div className="w-1.5 h-1.5 bg-zinc-950 rounded-full" />
                 </div>
               </div>
             </div>

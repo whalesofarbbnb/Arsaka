@@ -53,6 +53,7 @@ export interface VPVRNode {
 export interface TradingSignal {
   action: 'LONG' | 'SHORT' | 'NEUTRAL';
   actionLabel: string; // e.g. "STRONG BUY", "STRONG SELL", "HOLD"
+  entryPrice: number;
   tp1: number;
   tp2: number;
   sl: number;

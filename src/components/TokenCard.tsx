@@ -13,16 +13,31 @@ export default function TokenCard({ ticker, onClick }: TokenCardProps) {
   const isBullish = ticker.change24h >= 0;
   const signal = ticker.signal;
   
-  // Calculate quick distance to TP1 and SL
-  const entry = ticker.price;
-  const tp = signal.tp1;
+  // Distance calculator to TP/SL with direction-aware real-time slider mapping
+  const entry = signal.entryPrice || ticker.price;
+  const tp1 = signal.tp1;
+  const tp2 = signal.tp2;
   const sl = signal.sl;
-  
-  const totalSpan = Math.abs(tp - sl) || 1;
-  const currentDiff = Math.abs(entry - sl);
-  const sliderPercent = Math.min(100, Math.max(0, (currentDiff / totalSpan) * 100));
-
+  const current = ticker.price;
   const isLong = signal.action === 'LONG';
+
+  // Left is Stop Loss (SL) for LONG, but Take Profit 2 (TP2) for SHORT
+  // Right is Take Profit 2 (TP2) for LONG, but Stop Loss (SL) for SHORT
+  const leftBoundary = isLong ? sl : tp2;
+  const rightBoundary = isLong ? tp2 : sl;
+  const range = Math.abs(rightBoundary - leftBoundary);
+
+  const getPercent = (val: number) => {
+    if (range === 0) return 50;
+    const pct = ((val - leftBoundary) / (rightBoundary - leftBoundary)) * 100;
+    return Math.min(100, Math.max(0, pct)); // clamp to 0-100%
+  };
+
+  const entryPct = getPercent(entry);
+  const currentPct = getPercent(current);
+  const tp1Pct = getPercent(tp1);
+  const tp2Pct = getPercent(tp2);
+  const slPct = getPercent(sl);
 
   return (
     <motion.div
@@ -108,27 +123,79 @@ export default function TokenCard({ ticker, onClick }: TokenCardProps) {
 
       {/* Target slider and prices */}
       <div className="pt-2 border-t border-zinc-900 space-y-2">
-        <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500">
-          <div className="flex items-center gap-0.5">
-            <ShieldAlert size={10} className="text-red-400" /> SL: ${sl > 1 ? sl.toFixed(2) : sl.toFixed(4)}
-          </div>
-          <div className="flex items-center gap-0.5">
-            <Target size={10} className="text-emerald-400" /> TP1: ${tp > 1 ? tp.toFixed(2) : tp.toFixed(4)}
-          </div>
+        <div className="flex items-center justify-between text-[9px] font-mono uppercase tracking-wider">
+          <span className={isLong ? "text-red-400 font-semibold" : "text-emerald-400 font-semibold"}>
+            {isLong 
+              ? `SL: $${sl > 1 ? sl.toFixed(2) : sl.toFixed(4)}` 
+              : `TP2: $${tp2 > 1 ? tp2.toFixed(2) : tp2.toFixed(4)}`}
+          </span>
+          <span className="text-zinc-500 text-[8px]">
+            ENTRY: ${entry > 1 ? entry.toFixed(2) : entry.toFixed(4)}
+          </span>
+          <span className={isLong ? "text-emerald-400 font-semibold" : "text-red-400 font-semibold"}>
+            {isLong 
+              ? `TP2: $${tp2 > 1 ? tp2.toFixed(2) : tp2.toFixed(4)}` 
+              : `SL: $${sl > 1 ? sl.toFixed(2) : sl.toFixed(4)}`}
+          </span>
         </div>
 
-        {/* Custom Target Progress Track */}
-        <div className="h-1.5 w-full bg-zinc-950 rounded-full relative overflow-hidden border border-zinc-900">
+        {/* Custom Target Progress Track (Micro scale) */}
+        <div className="h-2 w-full bg-zinc-950 rounded-full relative overflow-visible border border-zinc-900">
+          {/* Dynamically colored zones */}
+          {isLong ? (
+            <>
+              <div 
+                className="absolute top-0 bottom-0 left-0 bg-red-500/25 rounded-l-full" 
+                style={{ width: `${entryPct}%` }}
+              />
+              <div 
+                className="absolute top-0 bottom-0 bg-emerald-500/25 rounded-r-full" 
+                style={{ left: `${entryPct}%`, right: 0 }}
+              />
+            </>
+          ) : (
+            <>
+              <div 
+                className="absolute top-0 bottom-0 left-0 bg-emerald-500/25 rounded-l-full" 
+                style={{ width: `${entryPct}%` }}
+              />
+              <div 
+                className="absolute top-0 bottom-0 bg-red-500/25 rounded-r-full" 
+                style={{ left: `${entryPct}%`, right: 0 }}
+              />
+            </>
+          )}
+
+          {/* TP1 Tick marker */}
           <div 
-            className={`h-full rounded-full transition-all duration-300 ${isLong ? 'bg-emerald-500' : 'bg-red-500'}`} 
-            style={{ width: `${sliderPercent}%` }}
+            className="absolute top-1/2 -translate-y-1/2 -ml-0.5 w-1 h-2.5 bg-emerald-400/80 rounded-full"
+            style={{ left: `${tp1Pct}%` }}
+            title={`TP1: $${tp1}`}
+          />
+
+          {/* Entry Line Indicator */}
+          <div 
+            className="absolute top-0 bottom-0 -ml-[0.5px] w-[1px] bg-amber-500/85"
+            style={{ left: `${entryPct}%` }}
+          />
+
+          {/* Realtime dot marker */}
+          <div 
+            className="absolute top-1/2 -translate-y-1/2 -ml-1 w-2 h-2 bg-white rounded-full shadow-[0_0_5px_rgba(255,255,255,0.7)] border border-zinc-950 z-10 transition-all duration-300"
+            style={{ left: `${currentPct}%` }}
           />
         </div>
 
-        {/* Confidence Meter */}
-        <div className="flex justify-between items-center text-[10px] font-mono text-zinc-500">
-          <span>ML CONFIDENCE</span>
-          <span className="text-amber-400 font-semibold">{signal.confidence}%</span>
+        {/* Risk / Reward & Confidence */}
+        <div className="space-y-1.5 pt-1">
+          <div className="flex justify-between items-center text-[10px] font-mono text-zinc-500">
+            <span>RISK:REWARD RATIO</span>
+            <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[9px]">1 : 2</span>
+          </div>
+          <div className="flex justify-between items-center text-[10px] font-mono text-zinc-500">
+            <span>ML CONFIDENCE</span>
+            <span className="text-amber-400 font-semibold">{signal.confidence}%</span>
+          </div>
         </div>
       </div>
     </motion.div>

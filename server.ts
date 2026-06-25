@@ -384,13 +384,18 @@ async function analyzeTicker(symbol: string, isCustom: boolean = false): Promise
   const prevClose = ref1DCloses[ref1DCloses.length - 2] || ref1DCloses[0] || currentPrice;
   const change24h = ((currentPrice - prevClose) / prevClose) * 100;
 
+  // Calculate entry price from current hour candle's open to have a stable trade entry reference
+  const candles1h = timeframes['1h']?.candles || [];
+  const entryPrice = candles1h.length > 0 ? candles1h[candles1h.length - 1].open : currentPrice;
+
   // Calculate algorithmic indicator action (Fallback in case Gemini is offline)
-  const algoAction = getAlgorithmicSignal(timeframes, currentPrice, keyLevels);
+  const algoAction = getAlgorithmicSignal(timeframes, currentPrice, keyLevels, entryPrice);
 
   // Standard trading signals template
   let finalSignal = {
     action: algoAction.action,
     actionLabel: algoAction.label,
+    entryPrice: algoAction.entryPrice,
     tp1: algoAction.tp1,
     tp2: algoAction.tp2,
     sl: algoAction.sl,
@@ -424,8 +429,9 @@ async function analyzeTicker(symbol: string, isCustom: boolean = false): Promise
 function getAlgorithmicSignal(
   timeframes: any,
   price: number,
-  keyLevels: KeyPriceLevels
-): { action: 'LONG' | 'SHORT' | 'NEUTRAL'; label: string; tp1: number; tp2: number; sl: number } {
+  keyLevels: KeyPriceLevels,
+  entryPrice: number
+): { action: 'LONG' | 'SHORT' | 'NEUTRAL'; label: string; entryPrice: number; tp1: number; tp2: number; sl: number } {
   const tf1h = timeframes['1h'];
   const tf1D = timeframes['1D'];
 
@@ -455,30 +461,41 @@ function getAlgorithmicSignal(
 
   let action: 'LONG' | 'SHORT' | 'NEUTRAL' = 'NEUTRAL';
   let label = 'NEUTRAL';
-  let tp1 = price * 1.02;
-  let tp2 = price * 1.05;
-  let sl = price * 0.98;
+  let tp1 = entryPrice * 1.03;
+  let tp2 = entryPrice * 1.05;
+  let sl = entryPrice * 0.985; // Default 1.5% risk, 3% reward (1:2 ratio)
 
   if (buyScore >= 4.5) {
     action = 'LONG';
     label = buyScore >= 6 ? 'STRONG BUY' : 'BUY';
-    tp1 = keyLevels.pdh > price ? keyLevels.pdh : price * 1.03;
-    tp2 = keyLevels.pwh > tp1 ? keyLevels.pwh : tp1 * 1.04;
-    sl = keyLevels.pdl < price ? keyLevels.pdl : price * 0.97;
+    
+    // Calculate a dynamic risk percentage based on support (PDL), but clamp between 1.2% and 2.5% to maintain perfect look
+    const rawRiskPercent = Math.max(0.012, Math.min(0.025, (entryPrice - keyLevels.pdl) / entryPrice));
+    
+    // Precise 1:2 Risk-to-Reward Ratio
+    sl = entryPrice * (1 - rawRiskPercent);
+    tp1 = entryPrice * (1 + rawRiskPercent * 2.0); // Reward 1 is exactly 2x Risk
+    tp2 = entryPrice * (1 + rawRiskPercent * 3.5); // Reward 2 is higher
   } else if (sellScore >= 4.5) {
     action = 'SHORT';
     label = sellScore >= 6 ? 'STRONG SELL' : 'SELL';
-    tp1 = keyLevels.pdl < price ? keyLevels.pdl : price * 0.97;
-    tp2 = keyLevels.pwl < tp1 ? keyLevels.pwl : tp1 * 0.96;
-    sl = keyLevels.pdh > price ? keyLevels.pdh : price * 1.03;
+    
+    // Calculate a dynamic risk percentage based on resistance (PDH), but clamp between 1.2% and 2.5%
+    const rawRiskPercent = Math.max(0.012, Math.min(0.025, (keyLevels.pdh - entryPrice) / entryPrice));
+    
+    // Precise 1:2 Risk-to-Reward Ratio
+    sl = entryPrice * (1 + rawRiskPercent);
+    tp1 = entryPrice * (1 - rawRiskPercent * 2.0); // Reward 1 is exactly 2x Risk
+    tp2 = entryPrice * (1 - rawRiskPercent * 3.5); // Reward 2 is higher
   }
 
   return {
     action,
     label,
-    tp1: parseFloat(tp1.toFixed(4)),
-    tp2: parseFloat(tp2.toFixed(4)),
-    sl: parseFloat(sl.toFixed(4))
+    entryPrice: parseFloat(entryPrice.toFixed(6)),
+    tp1: parseFloat(tp1.toFixed(6)),
+    tp2: parseFloat(tp2.toFixed(6)),
+    sl: parseFloat(sl.toFixed(6))
   };
 }
 
