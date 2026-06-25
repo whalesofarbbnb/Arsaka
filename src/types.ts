@@ -32,6 +32,7 @@ export interface TimeframeData {
     volume: number;
     time: number;
   }>;
+  signal?: TradingSignal;
 }
 
 export interface KeyPriceLevels {
@@ -59,6 +60,9 @@ export interface TradingSignal {
   sl: number;
   confidence: number;
   reasoning: string;
+  usdtD_4h_change?: number;
+  usdtD_1h_change?: number;
+  usdtD_15m_change?: number;
 }
 
 export interface TickerAnalysis {

@@ -24,10 +24,11 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [selectedTicker, setSelectedTicker] = useState<TickerAnalysis | null>(null);
+  const [selectedTimeframe, setSelectedTimeframe] = useState<'5m' | '15m' | '1h' | '4h' | '1D'>('1h');
   const [isLoading, setIsLoading] = useState(true);
 
   // Load initial global stats and tickers
-  const loadStatsAndTickers = async () => {
+  const loadStatsAndTickers = async (tf: string = selectedTimeframe) => {
     try {
       const statsRes = await fetch('/api/market/global');
       if (statsRes.ok) {
@@ -35,28 +36,56 @@ export default function App() {
         setGlobalStats(statsData);
       }
 
-      const tickersRes = await fetch('/api/market/tickers');
+      const tickersRes = await fetch(`/api/market/tickers?timeframe=${tf}`);
       if (tickersRes.ok) {
-        const tickersData = await tickersRes.json();
+        const tickersData: TickerAnalysis[] = await tickersRes.json();
         setTickers(tickersData);
+
+        // Update selected ticker in real-time if modal is open
+        if (selectedTicker) {
+          const updated = tickersData.find(t => t.symbol === selectedTicker.symbol);
+          if (updated) {
+            setSelectedTicker(updated);
+          } else {
+            // Re-fetch custom search token analysis for this timeframe
+            reAnalyzeSelectedCustom(selectedTicker.symbol, tf);
+          }
+        }
       }
     } catch (e) {
-      console.error("Failed to fetch initial load:", e);
+      console.error("Failed to fetch tickers:", e);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const reAnalyzeSelectedCustom = async (sym: string, tf: string) => {
+    try {
+      const res = await fetch('/api/market/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym, timeframe: tf }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        data.isCustom = true;
+        setSelectedTicker(data);
+      }
+    } catch (err) {
+      console.error("Failed to re-analyze custom token:", err);
+    }
+  };
+
   useEffect(() => {
-    loadStatsAndTickers();
+    loadStatsAndTickers(selectedTimeframe);
     
     // Auto refresh tickers every 25 seconds
     const interval = setInterval(() => {
-      loadStatsAndTickers();
+      loadStatsAndTickers(selectedTimeframe);
     }, 25000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedTimeframe]);
 
   // Handle Custom Token Search and Card Addition
   const handleSearchAndAdd = async (e: React.FormEvent) => {
@@ -70,7 +99,7 @@ export default function App() {
       const res = await fetch('/api/market/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: searchSymbol }),
+        body: JSON.stringify({ symbol: searchSymbol, timeframe: selectedTimeframe }),
       });
 
       if (!res.ok) {
@@ -134,41 +163,63 @@ export default function App() {
               </div>
             </div>
 
-            {/* Core Header Stats (BTC Dom, USDT Dom, Market Status) */}
-            <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 md:gap-6 w-full md:w-auto">
+            {/* Right side controls and stats stack */}
+            <div className="flex flex-col items-center md:items-end gap-3 w-full md:w-auto">
               
-              {/* BTC Dom */}
-              <div className="bg-zinc-900/40 border border-zinc-800/80 px-3.5 py-1.5 rounded-xl text-center">
-                <span className="text-[9px] text-zinc-500 font-mono block uppercase">BTC DOMINANCE</span>
-                <span className="text-sm font-bold font-mono text-zinc-200">
-                  {globalStats ? `${globalStats.btcDominance}%` : '55.40%'}
-                </span>
+              {/* Timeframe Selector */}
+              <div className="flex items-center gap-1 bg-zinc-900/60 p-1.5 rounded-xl border border-zinc-800/60">
+                {(['5m', '15m', '1h', '4h', '1D'] as const).map((tf) => (
+                  <button
+                    key={tf}
+                    id={`tf-btn-${tf}`}
+                    onClick={() => setSelectedTimeframe(tf)}
+                    className={`px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all duration-200 uppercase ${
+                      selectedTimeframe === tf
+                        ? 'bg-amber-500 text-zinc-950 shadow-[0_0_10px_rgba(245,158,11,0.25)] scale-[1.03]'
+                        : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
               </div>
 
-              {/* USDT Dom */}
-              <div className="bg-zinc-900/40 border border-zinc-800/80 px-3.5 py-1.5 rounded-xl text-center">
-                <span className="text-[9px] text-zinc-500 font-mono block uppercase">USDT DOMINANCE</span>
-                <span className="text-sm font-bold font-mono text-zinc-200">
-                  {globalStats ? `${globalStats.usdtDominance}%` : '5.10%'}
-                </span>
-              </div>
+              {/* Core Header Stats (BTC Dom, USDT Dom, Market Status) */}
+              <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 md:gap-4 w-full md:w-auto">
+                
+                {/* BTC Dom */}
+                <div className="bg-zinc-900/40 border border-zinc-800/80 px-3.5 py-1.5 rounded-xl text-center">
+                  <span className="text-[9px] text-zinc-500 font-mono block uppercase">BTC DOMINANCE</span>
+                  <span className="text-sm font-bold font-mono text-zinc-200">
+                    {globalStats ? `${globalStats.btcDominance}%` : '55.40%'}
+                  </span>
+                </div>
 
-              {/* Overall Market Status */}
-              <div className="bg-zinc-900/40 border border-zinc-800/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2.5 max-w-[240px]">
-                <div className="text-left">
-                  <span className="text-[9px] text-zinc-500 font-mono block uppercase">MARKET STATUS</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      globalStats?.overallStatus === 'Bullish' ? 'bg-emerald-400 animate-pulse' :
-                      globalStats?.overallStatus === 'Bearish' ? 'bg-red-400 animate-pulse' : 'bg-amber-400'
-                    }`} />
-                    <span className="text-xs font-bold text-zinc-200">
-                      {globalStats ? globalStats.overallStatus : 'BULLISH'}
-                    </span>
+                {/* USDT Dom */}
+                <div className="bg-zinc-900/40 border border-zinc-800/80 px-3.5 py-1.5 rounded-xl text-center">
+                  <span className="text-[9px] text-zinc-500 font-mono block uppercase">USDT DOMINANCE</span>
+                  <span className="text-sm font-bold font-mono text-zinc-200">
+                    {globalStats ? `${globalStats.usdtDominance}%` : '5.10%'}
+                  </span>
+                </div>
+
+                {/* Overall Market Status */}
+                <div className="bg-zinc-900/40 border border-zinc-800/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2.5 max-w-[240px]">
+                  <div className="text-left">
+                    <span className="text-[9px] text-zinc-500 font-mono block uppercase">MARKET STATUS</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        globalStats?.overallStatus === 'Bullish' ? 'bg-emerald-400 animate-pulse' :
+                        globalStats?.overallStatus === 'Bearish' ? 'bg-red-400 animate-pulse' : 'bg-amber-400'
+                      }`} />
+                      <span className="text-xs font-bold text-zinc-200">
+                        {globalStats ? globalStats.overallStatus : 'BULLISH'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
+              </div>
             </div>
 
           </div>
@@ -294,6 +345,7 @@ export default function App() {
         {selectedTicker && (
           <DetailedCardModal
             ticker={selectedTicker}
+            initialTimeframe={selectedTimeframe}
             onClose={() => setSelectedTicker(null)}
           />
         )}

@@ -5,16 +5,18 @@ import { TickerAnalysis } from '../types';
 
 interface DetailedCardModalProps {
   ticker: TickerAnalysis;
+  initialTimeframe?: TimeframeOption;
   onClose: () => void;
 }
 
 type TimeframeOption = '5m' | '15m' | '1h' | '4h' | '1D';
 
-export default function DetailedCardModal({ ticker, onClose }: DetailedCardModalProps) {
-  const [selectedTf, setSelectedTf] = useState<TimeframeOption>('1h');
+export default function DetailedCardModal({ ticker, initialTimeframe = '1h', onClose }: DetailedCardModalProps) {
+  const [selectedTf, setSelectedTf] = useState<TimeframeOption>(initialTimeframe);
   
   const tfData = ticker.timeframes[selectedTf];
   const candles = tfData.candles || [];
+  const activeSignal = tfData.signal || ticker.signal;
   
   // Calculate price coordinates for SVG Chart
   const drawChart = () => {
@@ -221,13 +223,14 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
 
   // Distance calculator to TP/SL with direction-aware real-time slider mapping
   const getTradeStats = () => {
-    const entry = ticker.signal.entryPrice || ticker.price;
-    const tp1 = ticker.signal.tp1;
-    const tp2 = ticker.signal.tp2;
-    const sl = ticker.signal.sl;
+    const activeSig = tfData.signal || ticker.signal;
+    const entry = activeSig.entryPrice || ticker.price;
+    const tp1 = activeSig.tp1;
+    const tp2 = activeSig.tp2;
+    const sl = activeSig.sl;
     const current = ticker.price;
     
-    const isLong = ticker.signal.action === 'LONG';
+    const isLong = activeSig.action === 'LONG';
 
     // Left is Stop Loss (SL) for LONG, but Take Profit 2 (TP2) for SHORT
     // Right is Take Profit 2 (TP2) for LONG, but Stop Loss (SL) for SHORT
@@ -477,7 +480,7 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
                     </span>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                    <span className="text-xs text-zinc-500">Machine Learning Confidence: {ticker.signal.confidence}%</span>
+                    <span className="text-xs text-zinc-500">Machine Learning Confidence: {activeSignal.confidence}%</span>
                     <span className="text-zinc-700">•</span>
                     <span className="text-xs text-zinc-400">Risk-to-Reward Ratio: <strong className="text-emerald-400 font-mono">1:2</strong></span>
                   </div>
@@ -486,13 +489,13 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
 
               {/* Glow Action Pill */}
               <div className={`px-4 py-2 rounded-xl border text-center font-bold tracking-wider text-sm ${
-                ticker.signal.action === 'LONG' 
+                activeSignal.action === 'LONG' 
                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.08)]' 
-                  : ticker.signal.action === 'SHORT'
+                  : activeSignal.action === 'SHORT'
                   ? 'bg-red-500/10 text-red-400 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.08)]'
                   : 'bg-zinc-800/50 text-zinc-400 border-zinc-700'
               }`}>
-                {ticker.signal.actionLabel}
+                {activeSignal.actionLabel}
               </div>
             </div>
 
@@ -503,7 +506,7 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
                   <ShieldAlert size={10} className="text-red-400" /> Stop Loss
                 </span>
                 <span className="text-sm font-bold text-red-400 font-mono">
-                  ${ticker.signal.sl > 1 ? ticker.signal.sl.toFixed(2) : ticker.signal.sl.toFixed(4)}
+                  ${activeSignal.sl > 1 ? activeSignal.sl.toFixed(2) : activeSignal.sl.toFixed(4)}
                 </span>
               </div>
               <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-900/60">
@@ -511,7 +514,7 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
                   <Target size={10} className="text-emerald-400" /> Take Profit 1
                 </span>
                 <span className="text-sm font-bold text-emerald-400 font-mono">
-                  ${ticker.signal.tp1 > 1 ? ticker.signal.tp1.toFixed(2) : ticker.signal.tp1.toFixed(4)}
+                  ${activeSignal.tp1 > 1 ? activeSignal.tp1.toFixed(2) : activeSignal.tp1.toFixed(4)}
                 </span>
               </div>
               <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-900/60">
@@ -519,7 +522,7 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
                   <Target size={10} className="text-emerald-500" /> Take Profit 2
                 </span>
                 <span className="text-sm font-bold text-emerald-500 font-mono">
-                  ${ticker.signal.tp2 > 1 ? ticker.signal.tp2.toFixed(2) : ticker.signal.tp2.toFixed(4)}
+                  ${activeSignal.tp2 > 1 ? activeSignal.tp2.toFixed(2) : activeSignal.tp2.toFixed(4)}
                 </span>
               </div>
             </div>
@@ -624,7 +627,7 @@ export default function DetailedCardModal({ ticker, onClose }: DetailedCardModal
 
             {/* AI Reasoning */}
             <p className="text-xs text-zinc-300 leading-relaxed font-sans italic bg-zinc-950/40 p-3 rounded-lg border border-zinc-800/30">
-              "{ticker.signal.reasoning}"
+              "{activeSignal.reasoning}"
             </p>
           </div>
 
