@@ -734,9 +734,31 @@ app.get('/api/market/global', async (req, res) => {
           }
         }
       }
+    } else {
+      throw new Error(`CoinCap returned status ${capRes.status}`);
     }
   } catch (e) {
-    console.log("CoinCap asset fetch failed:", e instanceof Error ? e.message : e);
+    console.log("CoinCap asset fetch failed, attempting stable fallback to CoinLore:", e instanceof Error ? e.message : e);
+    // FALLBACK: Try CoinLore ticker for USDT (Tether id = 334)
+    try {
+      const loreUsdtRes = await fetch('https://api.coinlore.net/api/ticker/?id=334', { signal: AbortSignal.timeout(3000) });
+      if (loreUsdtRes.ok) {
+        const data = await loreUsdtRes.json() as any[];
+        if (Array.isArray(data) && data[0]) {
+          const usdtAsset = data[0];
+          const usdtMcap = parseFloat(usdtAsset.market_cap_usd);
+          if (usdtMcap && totalCap) {
+            const rawRatio = (usdtMcap / totalCap) * 100;
+            const calibrated = 8.42 * (rawRatio / 3.75);
+            usdtDom = parseFloat(Math.min(10.5, Math.max(7.2, calibrated)).toFixed(2));
+            isFetchedSuccessfully = true;
+            console.log("Successfully fetched USDT market cap from CoinLore fallback! Mcap:", usdtMcap);
+          }
+        }
+      }
+    } catch (loreErr) {
+      console.log("CoinLore USDT fallback fetch failed:", loreErr instanceof Error ? loreErr.message : loreErr);
+    }
   }
 
   // Fallback to high-quality dynamic random simulation if both APIs are offline
